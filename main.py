@@ -7,7 +7,7 @@ from gui import AppFinanceiro
 if __name__ == "__main__":
     # 1. Inicializa o banco offline (localmente, sem custos de nuvem)
     database.inicializar_banco()
-    
+
     # 2. Inicializa a Interface Gráfica (Desktop)
     root = tk.Tk()
     app = AppFinanceiro(root)

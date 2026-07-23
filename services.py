@@ -17,7 +17,7 @@ def obter_carteira(carteira_id) -> Carteira:
 def adicionar_salario(valor_poupanca, valor_gastos):
     carteira_poup = obter_carteira(1)
     carteira_gastos = obter_carteira(2)
-    
+
     conn = database.conectar()
     cursor = conn.cursor()
     cursor.execute("UPDATE carteiras SET saldo = ? WHERE id = 1", (carteira_poup.saldo + valor_poupanca,))
@@ -28,16 +28,17 @@ def adicionar_salario(valor_poupanca, valor_gastos):
 def registrar_gasto(gasto: Gasto):
     conn = database.conectar()
     cursor = conn.cursor()
-    
-    # Salva o gasto no banco
-    cursor.execute("INSERT INTO gastos (nome, descricao, valor) VALUES (?, ?, ?)", 
+
+    # Salva o gasto no banco (a coluna "data" é preenchida automaticamente
+    # pelo banco com CURRENT_TIMESTAMP, não precisamos passar valor aqui)
+    cursor.execute("INSERT INTO gastos (nome, descricao, valor) VALUES (?, ?, ?)",
                    (gasto.nome, gasto.descricao, gasto.valor))
-    
+
     # Deduz da carteira de gastos
     carteira_gastos = obter_carteira(2)
     novo_saldo = carteira_gastos.saldo - gasto.valor
     cursor.execute("UPDATE carteiras SET saldo = ? WHERE id = 2", (novo_saldo,))
-    
+
     conn.commit()
     conn.close()
 
@@ -58,13 +59,33 @@ def realizar_transferencia_emergencia(valor):
     conn.commit()
     conn.close()
 
+# ==================== ALTERAÇÃO 3 (INÍCIO) ==================== oK
 def obter_todos_gastos() -> list[Gasto]:
     conn = database.conectar()
     cursor = conn.cursor()
-    cursor.execute("SELECT nome, descricao, valor, id FROM gastos")
+    # Agora também buscamos a coluna "data" e ordenamos do mais recente
+    # para o mais antigo, para a lista fazer mais sentido pro usuário.
+    cursor.execute("SELECT nome, descricao, valor, id, data FROM gastos ORDER BY data DESC")
     rows = cursor.fetchall()
     conn.close()
-    return [Gasto(nome=row[0], descricao=row[1], valor=row[2], id_gasto=row[3]) for row in rows]
+    return [Gasto(nome=row[0], descricao=row[1], valor=row[2], id_gasto=row[3], data=row[4]) for row in rows]
+# ==================== ALTERAÇÃO 3 (FIM) ====================
+
+
+# ==================== ALTERAÇÃO 4 (INÍCIO) - FUNÇÃO NOVA ==================== #OK
+def obter_gastos_por_dia() -> dict:
+    """
+    Agrupa o total de gastos por dia (ignorando a hora).
+    Usado para gerar o gráfico de evolução de gastos ao longo do tempo.
+    Retorna um dicionário no formato {"2026-07-14": 120.50, "2026-07-15": 45.00}
+    """
+    conn = database.conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT date(data) as dia, SUM(valor) FROM gastos GROUP BY dia ORDER BY dia")
+    rows = cursor.fetchall()
+    conn.close()
+    return {row[0]: row[1] for row in rows}
+# ==================== ALTERAÇÃO 4 (FIM) - FUNÇÃO NOVA ====================
 
 def obter_historico_transferencias() -> list[Transferencia]:
     conn = database.conectar()
