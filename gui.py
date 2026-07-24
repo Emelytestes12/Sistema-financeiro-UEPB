@@ -1,144 +1,171 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
+import customtkinter as ctk
+from tkinter import messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import services
 from models import Gasto
+from designer import FinanceiroDesigner, CATEGORIAS_GASTO
 
-##Aqui é o arquivo da nossa interface grafica, onde o usuario vai interagir com o sistema.
 
-class AppFinanceiro:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Sistema Financeiro - Protótipo")
-        self.root.geometry("800x650")  # Aumentamos um pouquinho a altura para caber a lista confortavelmente
+class AppFinanceiro(FinanceiroDesigner):
+    def __init__(self):
+        super().__init__()
 
-        # Menu de abas
-        self.notebook = ttk.Notebook(root)
-        self.notebook.pack(fill='both', expand=True)
+        # Inicializa a exibição no dashboard e atualiza todas as informações
+        self.show_frame("dashboard")
+        self.update_all_screens()
 
-        self.tab_dashboard = ttk.Frame(self.notebook)
-        self.tab_gastos = ttk.Frame(self.notebook)
-        self.tab_poupanca = ttk.Frame(self.notebook)
+    def show_frame(self, name):
+        # Mapeamento de botões e telas
+        buttons = {
+            "dashboard": self.nav_button_1,
+            "gastos": self.nav_button_2,
+            "poupanca": self.nav_button_3
+        }
+        frames = {
+            "dashboard": self.dashboard_frame,
+            "gastos": self.gastos_frame,
+            "poupanca": self.poupanca_frame
+        }
 
-        self.notebook.add(self.tab_dashboard, text='Dashboard')
-        self.notebook.add(self.tab_gastos, text='Carteira de Gastos')
-        self.notebook.add(self.tab_poupanca, text='Carteira Poupança')
+        # 1. Esconde TODOS os frames para evitar qualquer sobreposição
+        for frame in frames.values():
+            frame.grid_forget()
 
-        self.notebook.bind("<<NotebookTabChanged>>", self.atualizar_todas_telas)
+        # 2. Atualiza os destaques visuais dos botões do menu lateral
+        for btn_name, button in buttons.items():
+            if btn_name == name:
+                button.configure(fg_color="#8b5cf6", text_color="#ffffff", hover_color="#7c3aed")
+            else:
+                button.configure(fg_color="#f1f5f9", text_color="#475569", hover_color="#e2e8f0")
 
-        self.montar_dashboard()
-        self.montar_tela_gastos()
-        self.montar_tela_poupanca()
-        
-        self.atualizar_todas_telas(None)
+        # 3. Exibe APENAS a tela selecionada
+        frames[name].grid(row=0, column=1, sticky="nsew", padx=30, pady=30)
 
-    def montar_dashboard(self):
-        frame_top = tk.Frame(self.tab_dashboard, pady=10)
-        frame_top.pack()
-
-        tk.Label(frame_top, text="Adicionar Salário / Entrada", font=("Arial", 12, "bold")).pack()
-        
-        tk.Label(frame_top, text="Valor para Poupança (R$):").pack()
-        self.entry_sal_poupanca = tk.Entry(frame_top)
-        self.entry_sal_poupanca.pack()
-
-        tk.Label(frame_top, text="Valor para Gastos (R$):").pack()
-        self.entry_sal_gastos = tk.Entry(frame_top)
-        self.entry_sal_gastos.pack()
-
-        tk.Button(frame_top, text="Adicionar Saldo", command=self.adicionar_saldo_inicial, bg="lightblue").pack(pady=10)
-
-        self.frame_grafico = tk.Frame(self.tab_dashboard)
-        self.frame_grafico.pack(fill='both', expand=True)
-
-    def adicionar_saldo_inicial(self):
+    def add_saldo(self):
         try:
-            val_poup = float(self.entry_sal_poupanca.get() or 0)
-            val_gas = float(self.entry_sal_gastos.get() or 0)
-            services.adicionar_salario(val_poup, val_gas)
-            messagebox.showinfo("Sucesso", "Saldo distribuído com sucesso!")
-            self.entry_sal_poupanca.delete(0, tk.END)
-            self.entry_sal_gastos.delete(0, tk.END)
-            self.atualizar_todas_telas(None)
-        except ValueError:
-            messagebox.showerror("Erro", "Digite valores numéricos válidos.")
+            val_poup = float(self.entry_sal_poupanca.get().replace(',', '.') or 0)
+            val_gas = float(self.entry_sal_gastos.get().replace(',', '.') or 0)
 
-    def atualizar_grafico(self):
-        for widget in self.frame_grafico.winfo_children():
+            # Validação para impedir valores zerados ou negativos
+            if val_poup <= 0 and val_gas <= 0:
+                messagebox.showwarning(
+                    "Valor Inválido", 
+                    "Informe um valor maior que zero em pelo menos uma das carteiras!"
+                )
+                return
+
+            services.adicionar_salario(val_poup, val_gas)
+            messagebox.showinfo("Sucesso!", "Saldo distribuído com sucesso!")
+            self.entry_sal_poupanca.delete(0, ctk.END)
+            self.entry_sal_gastos.delete(0, ctk.END)
+            self.update_all_screens()
+        except ValueError:
+            messagebox.showerror("Ops!", "Digite valores numéricos válidos.")
+
+    def update_graphs(self):
+        # Limpa figuras anteriores do Matplotlib para economizar memória e evitar bugs
+        plt.close('all')
+
+        # Limpa o container de gráficos
+        for widget in self.graphs_frame.winfo_children():
             widget.destroy()
 
+        # Cria figura com 3 gráficos
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(11, 4.5))
+        fig.patch.set_facecolor('#ffffff')
+
+        # Gráfico 1 - Pizza (distribuição de gastos)
         gastos = services.obter_todos_gastos()
-        if not gastos:
-            tk.Label(self.frame_grafico, text="Nenhum gasto registrado. O gráfico aparecerá aqui.").pack(pady=50)
-            return
+        if gastos:
+            dados_grafico = {}
+            for gasto in gastos:
+                rotulo = gasto.descricao if gasto.descricao else gasto.nome
+                dados_grafico[rotulo] = dados_grafico.get(rotulo, 0) + gasto.valor
+            
+            wedges, texts, autotexts = ax1.pie(
+                dados_grafico.values(), 
+                labels=dados_grafico.keys(), 
+                autopct="%1.1f%%",
+                startangle=90, 
+                colors=["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#84cc16"],
+                textprops={"fontsize": 9, "family": "Segoe UI"},
+                pctdistance=0.6,
+                labeldistance=1.15
+            )
+            
+            for text in texts:
+                text.set_color("#1e293b")
+                text.set_fontsize(9.5)
+                
+            for autotext in autotexts:
+                autotext.set_color("white")
+                autotext.set_weight("bold")
+                autotext.set_fontsize(9)
+                
+            ax1.axis("equal")
+            ax1.set_title("Distribuição de Gastos", fontsize=12, fontweight="bold", color="#1e293b", pad=15)
+        else:
+            ax1.text(0.5, 0.5, "Nenhum gasto\nregistrado", ha="center", va="center", fontsize=12, color="#64748b")
+            ax1.axis("off")
 
-        dados_grafico = {}
-        for gasto in gastos:
-            dados_grafico[gasto.nome] = dados_grafico.get(gasto.nome, 0) + gasto.valor
+        # Gráfico 2 - Barras (saldo das carteiras)
+        carteira_poup = services.obter_carteira(1)
+        carteira_gas = services.obter_carteira(2)
+        bars = ax2.bar(
+            ["Poupança", "Gastos"],
+            [carteira_poup.saldo, carteira_gas.saldo],
+            color=["#10b981", "#ef4444"],
+            width=0.6,
+            edgecolor='white',
+            linewidth=2
+        )
+        ax2.bar_label(bars, padding=5, fontsize=11, fontweight="bold")
+        ax2.set_title("Saldo por Carteira", fontsize=12, fontweight="bold", color="#1e293b", pad=15)
+        ax2.tick_params(axis="both", labelsize=11)
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['right'].set_visible(False)
+        ax2.set_facecolor('#ffffff')
 
-        fig, ax = plt.subplots(figsize=(5, 4))
-        ax.pie(dados_grafico.values(), labels=dados_grafico.keys(), autopct='%1.1f%%', startangle=90, colors=plt.cm.Pastel1.colors)
-        ax.axis('equal')
-        ax.set_title("Distribuição de Gastos (%)")
+        # Gráfico 3 - Linha (gastos por dia)
+        gastos_por_dia = services.obter_gastos_por_dia()
+        if gastos_por_dia:
+            dias = list(gastos_por_dia.keys())
+            valores = list(gastos_por_dia.values())
+            ax3.plot(dias, valores, marker='o', color="#ef4444", linewidth=3, markersize=8, markeredgecolor="white", markeredgewidth=2)
+            ax3.set_title("Gastos por Dia", fontsize=12, fontweight="bold", color="#1e293b", pad=15)
+            ax3.tick_params(axis="x", rotation=45, labelsize=9)
+            ax3.tick_params(axis="y", labelsize=10)
+            ax3.spines['top'].set_visible(False)
+            ax3.spines['right'].set_visible(False)
+            ax3.set_facecolor('#ffffff')
+            ax3.grid(alpha=0.3, linestyle='--')
+        else:
+            ax3.text(0.5, 0.5, "Sem histórico\nainda", ha="center", va="center", fontsize=12, color="#64748b")
+            ax3.axis("off")
 
-        canvas = FigureCanvasTkAgg(fig, master=self.frame_grafico)
+        fig.tight_layout()
+
+        # Renderiza o canvas dos gráficos
+        canvas = FigureCanvasTkAgg(fig, master=self.graphs_frame)
         canvas.draw()
-        canvas.get_tk_widget().pack()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
 
-    def montar_tela_gastos(self):
-        # Topo com saldo reduzido ligeiramente no espaçamento para caber tudo
-        self.lbl_saldo_gastos = tk.Label(self.tab_gastos, text="Saldo Disponível: R$ 0.00", font=("Arial", 16, "bold"), fg="darkred")
-        self.lbl_saldo_gastos.pack(pady=10)
-
-        # Formulário de Cadastro de Gasto
-        frame_form = tk.Frame(self.tab_gastos)
-        frame_form.pack(pady=5)
-
-        tk.Label(frame_form, text="Nome do Gasto (ex: Alimentação):").grid(row=0, column=0, pady=5, sticky="e")
-        self.entry_nome_gasto = tk.Entry(frame_form)
-        self.entry_nome_gasto.grid(row=0, column=1, pady=5)
-
-        tk.Label(frame_form, text="Descrição (Opcional):").grid(row=1, column=0, pady=5, sticky="e")
-        self.entry_desc_gasto = tk.Entry(frame_form)
-        self.entry_desc_gasto.grid(row=1, column=1, pady=5)
-
-        tk.Label(frame_form, text="Valor (R$):").grid(row=2, column=0, pady=5, sticky="e")
-        self.entry_valor_gasto = tk.Entry(frame_form)
-        self.entry_valor_gasto.grid(row=2, column=1, pady=5)
-
-        tk.Button(self.tab_gastos, text="Registrar Gasto", command=self.processar_novo_gasto, bg="lightcoral").pack(pady=10)
-
-        # --- NOVA SEÇÃO: HISTÓRICO VISUAL DE GASTOS ---
-        tk.Label(self.tab_gastos, text="Lista de Gastos Cadastrados", font=("Arial", 12, "bold")).pack(pady=10)
-        
-        colunas = ("Nome", "Descrição", "Valor (R$)")
-        self.tree_gastos = ttk.Treeview(self.tab_gastos, columns=colunas, show="headings", height=8)
-        self.tree_gastos.heading("Nome", text="Nome/Categoria")
-        self.tree_gastos.heading("Descrição", text="Descrição detalhada")
-        self.tree_gastos.heading("Valor (R$)", text="Valor (R$)")
-        
-        self.tree_gastos.column("Nome", width=150, anchor="center")
-        self.tree_gastos.column("Descrição", width=350, anchor="w")
-        self.tree_gastos.column("Valor (R$)", width=120, anchor="center")
-        
-        self.tree_gastos.pack(pady=5, fill="x", padx=20)
-
-    def processar_novo_gasto(self):
-        nome = self.entry_nome_gasto.get().strip()
+    def add_new_gasto(self):
+        nome = self.combo_nome_gasto.get().strip()
         desc = self.entry_desc_gasto.get().strip()
-        
+
         if not nome:
-            messagebox.showwarning("Aviso", "O nome do gasto é obrigatório.")
+            messagebox.showwarning("Aviso!", "Selecione uma categoria para o gasto.")
             return
 
         try:
-            valor = float(self.entry_valor_gasto.get())
+            valor = float(self.entry_valor_gasto.get().replace(',', '.'))
             if valor <= 0:
-                messagebox.showerror("Erro", "O valor deve ser maior que zero.")
+                messagebox.showerror("Ops!", "O valor deve ser maior que zero.")
                 return
         except ValueError:
-            messagebox.showerror("Erro", "Digite um valor numérico válido.")
+            messagebox.showerror("Ops!", "Digite um valor numérico válido.")
             return
 
         carteira_gastos = services.obter_carteira(2)
@@ -146,87 +173,108 @@ class AppFinanceiro:
         if valor > carteira_gastos.saldo:
             resposta = messagebox.askyesno(
                 "Saldo Insuficiente",
-                "Você não possui mais saldo suficiente para gastos. Deseja transferir o valor da carteira poupança para a carteira de gastos?"
+                "Você não tem saldo suficiente. Deseja transferir da poupança?"
             )
             if resposta:
-                self.abrir_tela_transferencia()
+                self.open_transfer_window()
         else:
             novo_gasto = Gasto(nome=nome, descricao=desc, valor=valor)
             services.registrar_gasto(novo_gasto)
-            
-            messagebox.showinfo("Sucesso", "Gasto registrado com sucesso!")
-            self.entry_nome_gasto.delete(0, tk.END)
-            self.entry_desc_gasto.delete(0, tk.END)
-            self.entry_valor_gasto.delete(0, tk.END)
-            self.atualizar_todas_telas(None)
+            messagebox.showinfo("Sucesso!", "Gasto registrado!")
+            self.combo_nome_gasto.set(CATEGORIAS_GASTO[0])
+            self.entry_desc_gasto.delete(0, ctk.END)
+            self.entry_valor_gasto.delete(0, ctk.END)
+            self.update_all_screens()
 
-    def abrir_tela_transferencia(self):
-        tela_transf = tk.Toplevel(self.root)
-        tela_transf.title("Transferência de Emergência")
-        tela_transf.geometry("400x250")
+    def open_transfer_window(self):
+        # Modal Pop-up de transferência
+        tela_transf = ctk.CTkToplevel(self)
+        tela_transf.title("💸 Transferência de Emergência")
+        tela_transf.geometry("600x400")
+        tela_transf.transient(self)
         tela_transf.grab_set()
+        tela_transf.configure(fg_color="#f1f5f9")
+
+        frame_inner = ctk.CTkFrame(tela_transf, fg_color="#ffffff", corner_radius=16)
+        frame_inner.pack(padx=30, pady=30, fill="both", expand=True)
+
+        ctk.CTkLabel(
+            frame_inner,
+            text="Resgate da Poupança",
+            font=ctk.CTkFont(size=24, weight="bold", family="Segoe UI"),
+            text_color="#1e293b"
+        ).pack(pady=(30, 15))
 
         carteira_poup = services.obter_carteira(1)
+        ctk.CTkLabel(
+            frame_inner,
+            text=f"Saldo na Poupança: R$ {carteira_poup.saldo:.2f}".replace('.', ','),
+            font=ctk.CTkFont(size=16, family="Segoe UI"),
+            text_color="#10b981"
+        ).pack(pady=5)
 
-        tk.Label(tela_transf, text="Resgate da Poupança", font=("Arial", 14, "bold")).pack(pady=10)
-        tk.Label(tela_transf, text=f"Saldo disponível na Poupança: R$ {carteira_poup.saldo:.2f}", fg="green").pack(pady=5)
-
-        tk.Label(tela_transf, text="Quanto deseja transferir para Gastos? (R$)").pack(pady=5)
-        entry_valor_transf = tk.Entry(tela_transf)
+        ctk.CTkLabel(frame_inner, text="Quanto transferir para Gastos? (R$):", font=ctk.CTkFont(size=14, family="Segoe UI"), text_color="#475569").pack(pady=(30, 10))
+        entry_valor_transf = ctk.CTkEntry(frame_inner, placeholder_text="0,00", font=ctk.CTkFont(size=14, family="Segoe UI"), height=50, corner_radius=10, fg_color="#f8fafc", border_color="#e2e8f0", width=300)
         entry_valor_transf.pack(pady=5)
 
-        def confirmar_transferencia():
+        def confirmar():
             try:
-                valor_transf = float(entry_valor_transf.get())
+                valor_transf = float(entry_valor_transf.get().replace(',', '.'))
                 if valor_transf > carteira_poup.saldo:
-                    messagebox.showerror("Erro", "Você não tem esse valor na poupança!")
+                    messagebox.showerror("Ops!", "Você não tem esse valor na poupança!")
                     return
                 if valor_transf <= 0:
-                    messagebox.showerror("Erro", "Digite um valor maior que zero.")
+                    messagebox.showerror("Ops!", "Digite um valor maior que zero.")
                     return
 
                 services.realizar_transferencia_emergencia(valor_transf)
-                messagebox.showinfo("Sucesso", "Valor transferido com sucesso!")
+                messagebox.showinfo("Sucesso!", "Valor transferido!")
                 tela_transf.destroy()
-                self.atualizar_todas_telas(None)
+                self.update_all_screens()
             except ValueError:
-                messagebox.showerror("Erro", "Valor inválido!")
+                messagebox.showerror("Ops!", "Valor inválido!")
 
-        tk.Button(tela_transf, text="Confirmar Transferência", command=confirmar_transferencia, bg="lightgreen").pack(pady=15)
+        btn_confirmar = ctk.CTkButton(
+            frame_inner,
+            text="✅ Confirmar Transferência",
+            font=ctk.CTkFont(size=15, weight="bold", family="Segoe UI"),
+            height=50,
+            corner_radius=10,
+            fg_color="#10b981",
+            hover_color="#059669",
+            command=confirmar
+        )
+        btn_confirmar.pack(pady=25)
 
-    def montar_tela_poupanca(self):
-        self.lbl_saldo_poupanca = tk.Label(self.tab_poupanca, text="Saldo Disponível: R$ 0.00", font=("Arial", 16, "bold"), fg="darkgreen")
-        self.lbl_saldo_poupanca.pack(pady=20)
-
-        tk.Label(self.tab_poupanca, text="Histórico de Transferências para Gastos", font=("Arial", 12)).pack(pady=10)
-        
-        colunas = ("Data", "Valor (R$)")
-        self.tree_historico = ttk.Treeview(self.tab_poupanca, columns=colunas, show="headings", height=10)
-        self.tree_historico.heading("Data", text="Data")
-        self.tree_historico.heading("Valor (R$)", text="Valor (R$)")
-        self.tree_historico.pack()
-
-    def atualizar_todas_telas(self, event):
+    def update_all_screens(self):
+        # Atualiza saldos dos cards
         carteira_poup = services.obter_carteira(1)
         carteira_gas = services.obter_carteira(2)
-        
-        self.lbl_saldo_poupanca.config(text=f"Saldo Disponível: R$ {carteira_poup.saldo:.2f}")
-        self.lbl_saldo_gastos.config(text=f"Saldo Disponível: R$ {carteira_gas.saldo:.2f}")
 
-        self.atualizar_grafico()
+        self.lbl_card_poupanca.configure(text=f"R$ {carteira_poup.saldo:.2f}".replace('.', ','))
+        self.lbl_card_gastos.configure(text=f"R$ {carteira_gas.saldo:.2f}".replace('.', ','))
 
-        # 1. Atualizar histórico de transferências (Aba Poupança)
+        # Atualiza gráficos
+        self.update_graphs()
+
+        # Atualiza histórico de transferências
         for row in self.tree_historico.get_children():
             self.tree_historico.delete(row)
-        
+
         historico = services.obter_historico_transferencias()
         for transf in historico:
-            self.tree_historico.insert("", "end", values=(transf.data[:16], f"{transf.valor:.2f}"))
+            self.tree_historico.insert("", "end", values=(transf.data[:16], f"R$ {transf.valor:.2f}".replace('.', ',')))
 
-        # 2. Atualizar a nova lista de gastos cadastrados (Aba Gastos)
+        # Atualiza lista de gastos
         for row in self.tree_gastos.get_children():
             self.tree_gastos.delete(row)
 
         gastos = services.obter_todos_gastos()
         for gasto in gastos:
-            self.tree_gastos.insert("", "end", values=(gasto.nome, gasto.descricao, f"{gasto.valor:.2f}"))
+            data_exibida = gasto.data[:16] if gasto.data else ""
+            self.tree_gastos.insert("", "end", values=(gasto.nome, gasto.descricao, f"R$ {gasto.valor:.2f}".replace('.', ','), data_exibida))
+
+
+if __name__ == "__main__":
+    app = AppFinanceiro()
+    app.mainloop()

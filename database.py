@@ -1,5 +1,4 @@
-import sqlite3 ##Aqui é o nosso banco, vai criar um arquivo chamado financeiro.db localmente, sem precisar de nuvem, e vai armazenar os dados do nosso sistema financeiro.
- 
+import sqlite3
 
 def conectar():
     return sqlite3.connect("financeiro.db")
@@ -17,7 +16,8 @@ def inicializar_banco():
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         nome TEXT,
                         descricao TEXT,
-                        valor REAL)''')
+                        valor REAL,
+                        data TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS transferencias (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
